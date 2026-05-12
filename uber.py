@@ -6,7 +6,7 @@ st.title("Uber Pickups in NY")
 
 DATE_COLUMN = 'date/time'
 uploaded_files = st.file_uploader(
-    "Upload data", accept_multiple_files=True, type="csv"
+    "Upload data", accept_multiple_files=True, type="csv")
          
 def load_data(nrows):
         data = pd.read_csv(uploaded_files, nrows = nrows)
