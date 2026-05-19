@@ -94,3 +94,55 @@ st.write("Filter through the dataset catalog or get instant content-based recomm
 
 # Create tabs for clean separation of features
 tab1, tab2 = st.tabs(["📊 Data Explorer & Filters", "🤖 Recommendation System"])    
+
+# -----------------------------------------------------------------------------
+# TAB 1: DATA EXPLORER WITH ADVANCED FILTERS
+# -----------------------------------------------------------------------------
+with tab1:
+    st.header("Filter and Explore Catalog")
+    
+    # Extract unique genres for multi-select widget
+    all_genres = set()
+    anime_df['genre'].str.split(', ').dropna().apply(all_genres.update)
+    sorted_genres = sorted(list(all_genres))
+    
+    # Extract unique types
+    sorted_types = sorted(anime_df['type'].unique())
+    
+    # Setup Filter Grid layout
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        search_name = st.text_input("🔍 Search by Name", "")
+        
+    with col2:
+        selected_genres = st.multiselect("🏷️ Filter by Genre", sorted_genres)
+        
+    with col3:
+        selected_types = st.multiselect("📺 Filter by Type", sorted_types)
+        
+    with col4:
+        min_rating = st.slider("⭐ Minimum Average Rating", 0.0, 10.0, 0.0, 0.5)
+        
+    # Apply filtering logic iteratively
+    filtered_df = anime_df.copy()
+    
+    if search_name:
+        filtered_df = filtered_df[filtered_df['name'].str.contains(search_name, case=False, na=False)]
+        
+    if selected_genres:
+        # Matches rows where any of the selected genres are present
+        filtered_df = filtered_df[filtered_df['genre'].apply(lambda x: any(genre in x for genre in selected_genres))]
+        
+    if selected_types:
+        filtered_df = filtered_df[filtered_df['type'].isin(selected_types)]
+        
+    filtered_df = filtered_df[filtered_df['rating'] >= min_rating]
+    
+    # Display Results
+    st.subheader(f"Results ({len(filtered_df)} matches found)")
+    st.dataframe(
+        filtered_df[['name', 'genre', 'type', 'rating', 'episodes', 'members']], 
+        use_container_width=True,
+        hide_index=True
+    )
