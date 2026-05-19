@@ -11,6 +11,7 @@ st.set_page_config(page_title="Anime Explorer & Recommender", layout="wide")
 # DATA LOADING & PREPROCESSING
 # -----------------------------------------------------------------------------
 
+@st.cache_data
 def load_data():
     # Load dataset
     df = pd.read_csv('anime_ratings.xls.csv')
