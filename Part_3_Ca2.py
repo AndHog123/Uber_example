@@ -14,7 +14,7 @@ st.set_page_config(page_title="Anime Explorer & Recommender", layout="wide")
 @st.cache_data
 def load_data():
     # Load dataset
-    df = pd.read_csv('anime_ratings.xls.csv')
+    df = pd.read_csv('anime_ratings.csv')
     
     # Clean up column spaces if any
     df.columns = df.columns.str.strip()
