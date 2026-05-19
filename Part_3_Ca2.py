@@ -146,3 +146,31 @@ with tab1:
         use_container_width=True,
         hide_index=True
     )
+    
+# -----------------------------------------------------------------------------
+# TAB 2: CONTENT-BASED RECOMMENDATION SYSTEM
+# -----------------------------------------------------------------------------
+with tab2:
+    st.header("Get Anime Recommendations")
+    st.write("Select an anime you like, and the system will recommend similar ones based on genre profiles.")
+    
+    # Dropdown selectbox for target anime
+    anime_list = sorted(anime_df['name'].unique())
+    selected_anime = st.selectbox("🎯 Choose an Anime you love:", anime_list)
+    
+    num_rec = st.slider("Number of recommendations to show", 3, 10, 5)
+    
+    if st.button("✨ Generate Recommendations"):
+        # Display baseline info about selected item
+        base_info = anime_df[anime_df['name'] == selected_anime].iloc[0]
+        st.markdown(f"**Selected Anime Profile:** `{base_info['genre']}` | Type: `{base_info['type']}` | Rating: `{base_info['rating']}`")
+        st.write("---")
+        
+        # Get recommendations
+        recommendations = get_recommendations(selected_anime, anime_df, cosine_sim, num_rec)
+        
+        if not recommendations.empty:
+            st.success(f"Here are the top {num_rec} anime recommendations similar to **{selected_anime}**:")
+            st.dataframe(recommendations, use_container_width=True, hide_index=True)
+        else:
+            st.error("No recommendations could be generated for this selection.")
