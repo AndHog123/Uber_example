@@ -46,5 +46,51 @@ def load_data():
 try:
     anime_df = load_data()
 except FileNotFoundError:
-    st.error("Could not find 'anime_ratings.xls.csv'. Please ensure the file is in the same directory as this script.")
+    st.error("Could not find 'anime_ratings.csv'. Please ensure the file is in the same directory as this script.")
     st.stop()
+    
+# -----------------------------------------------------------------------------
+# RECOMMENDATION ENGINE ENGINE SETUP
+# -----------------------------------------------------------------------------
+
+@st.cache_resource
+def compute_similarity(df):
+    # Use TF-IDF to vectorize the genres
+    tfidf = TfidfVectorizer(stop_words='english')
+    tfidf_matrix = tfidf.fit_transform(df['genre'])
+    
+    # Compute pairwise cosine similarity matrix
+    cosine_sim = cosine_similarity(tfidf_matrix, tfidf_matrix)
+    return cosine_sim
+
+cosine_sim = compute_similarity(anime_df)
+
+def get_recommendations(title, df, cosine_sim, num_recommendations=5):
+    # Get index of the anime that matches the title
+    try:
+        idx = df[df['name'] == title].index[0]
+    except IndexError:
+        return pd.DataFrame()
+    
+    # Get pairwise similarity scores of all anime with that anime
+    sim_scores = list(enumerate(cosine_sim[idx]))
+    
+    # Sort the anime based on similarity scores
+    sim_scores = sorted(sim_scores, key=lambda x: x[1], reverse=True)
+    
+    # Get scores of top N most similar anime (excluding itself)
+    sim_scores = [score for score in sim_scores if score[0] != idx][:num_recommendations]
+    
+    # Get the anime indices
+    anime_indices = [i[0] for i in sim_scores]
+    
+    return df.iloc[anime_indices][['name', 'genre', 'type', 'rating', 'episodes']]
+
+# -----------------------------------------------------------------------------
+# APP UI LAYOUT
+# -----------------------------------------------------------------------------
+st.title("🎬 Anime Explorer & Recommendation Dashboard")
+st.write("Filter through the dataset catalog or get instant content-based recommendations.")
+
+# Create tabs for clean separation of features
+tab1, tab2 = st.tabs(["📊 Data Explorer & Filters", "🤖 Recommendation System"])    
