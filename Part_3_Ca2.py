@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from sklearn.feature_extraction.text import TfidVectorizer
-from sklearn.metrics.pairwiseimport cosine_similarity
+from sklearn.metrics.pairwise import cosine_similarity
 
 # Set page configuration
 st.set_page_config(page_title="Anime Explorer & Recommender", layout="wide")
