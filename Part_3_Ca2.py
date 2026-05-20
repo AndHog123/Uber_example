@@ -10,11 +10,10 @@ st.set_page_config(page_title="Anime Explorer & Recommender", layout="wide")
 # -----------------------------------------------------------------------------
 # DATA LOADING & PREPROCESSING
 # -----------------------------------------------------------------------------
-
 @st.cache_data
 def load_data():
     # Load dataset
-    df = pd.read_csv('anime_ratings.csv')
+    df = pd.read_csv('anime_ratings.xls.csv')
     
     # Clean up column spaces if any
     df.columns = df.columns.str.strip()
@@ -23,8 +22,7 @@ def load_data():
     df['genre'] = df['genre'].fillna('Unknown')
     df['type'] = df['type'].fillna('Unknown')
     
-    # In this dataset, a rating of -1 means the user watched it but didn't rate it.
-    # We replace -1 with NaN to calculate an accurate global average rating.
+    # Replace -1 (watched but not rated) with NaN to get precise global average ratings
     df_ratings_clean = df.copy()
     df_ratings_clean['rating'] = df_ratings_clean['rating'].replace(-1, np.nan)
     
@@ -35,20 +33,20 @@ def load_data():
         'type': 'first',
         'episodes': 'first',
         'members': 'first',
-        'rating': 'mean' # Calculate average user rating
+        'rating': 'mean' 
     }).reset_index()
     
-    # Round rating to 2 decimal places
     anime_unique['rating'] = anime_unique['rating'].round(2).fillna(0.0)
     
-    return anime_unique
+    return df, df_ratings_clean, anime_unique
 
 try:
-    anime_df = load_data()
+    raw_df, clean_ratings_df, anime_df = load_data()
 except FileNotFoundError:
-    st.error("Could not find 'anime_ratings.csv'. Please ensure the file is in the same directory as this script.")
+    st.error("Could not find 'anime_ratings.xls.csv'. Please ensure the file is in the same directory as this script.")
     st.stop()
-    
+
+
 # -----------------------------------------------------------------------------
 # MATRIX COMPENSATIONS & SIMILARITY CACHING
 # -----------------------------------------------------------------------------
@@ -60,22 +58,17 @@ def compute_content_similarity(df):
 
 @st.cache_resource
 def compute_collaborative_matrices():
-    # Create User-Item Pivot Matrix
-    # We use pivot table with filling 0 for unobserved ratings
+    # One single pivot table: rows = anime_id, columns = user_id 
     pivot_matrix = clean_ratings_df.pivot_table(index='anime_id', columns='user_id', values='rating').fillna(0)
     
-    # Item-to-Item Cosine Similarity Matrix (for Collaborative Item Filtering)
+    # Item-to-Item Cosine Similarity Matrix
     item_collab_sim = cosine_similarity(pivot_matrix)
     
-    # User-to-User Cosine Similarity Matrix (for Personalized User Filtering)
-    user_pivot_matrix = clean_ratings_df.pivot_table(index='user_id', columns='anime_id', values='rating').fillna(0)
-    user_collab_sim = cosine_similarity(user_pivot_matrix)
-    
-    return pivot_matrix, item_collab_sim, user_pivot_matrix, user_collab_sim
+    return pivot_matrix, item_collab_sim
 
-# Generate all matrices
+# Generate optimized matrices
 content_sim = compute_content_similarity(anime_df)
-pivot_matrix, item_collab_sim, user_pivot_matrix, user_collab_sim = compute_collaborative_matrices()
+pivot_matrix, item_collab_sim = compute_collaborative_matrices()
 
 
 # -----------------------------------------------------------------------------
@@ -93,7 +86,6 @@ def get_content_recommendations(title, df, sim_matrix, num_rec=5):
     return df.iloc[anime_indices][['name', 'genre', 'type', 'rating', 'episodes']]
 
 def get_item_collaborative_recommendations(title, df, pivot, sim_matrix, num_rec=5):
-    # Find anime_id corresponding to the name
     try:
         anime_id = df[df['name'] == title]['anime_id'].values[0]
     except IndexError:
@@ -102,50 +94,49 @@ def get_item_collaborative_recommendations(title, df, pivot, sim_matrix, num_rec
     if anime_id not in pivot.index:
         return pd.DataFrame()
     
-    # Locate actual position inside pivot matrix
     pivot_idx = pivot.index.get_loc(anime_id)
     sim_scores = list(enumerate(sim_matrix[pivot_idx]))
     sim_scores = sorted(sim_scores, key=lambda x: x[1], reverse=True)
-    
-    # Select top matches (skipping itself)
     sim_scores = [s for s in sim_scores if s[0] != pivot_idx][:num_rec]
     
     rec_anime_ids = [pivot.index[i[0]] for i in sim_scores]
     return df[df['anime_id'].isin(rec_anime_ids)][['name', 'genre', 'type', 'rating', 'episodes']]
 
-def get_user_collaborative_recommendations(user_id, df, user_pivot, user_sim, num_rec=5):
-    if user_id not in user_pivot.index:
+def get_user_collaborative_recommendations(user_id, df, pivot, num_rec=5):
+    if user_id not in pivot.columns:
         return pd.DataFrame()
     
-    user_idx = user_pivot.index.get_loc(user_id)
+    # Compute similarity vector for this specific user 
+    target_user_vector = pivot[user_id].values.reshape(1, -1)
+    user_sim_vector = cosine_similarity(target_user_vector, pivot.T).flatten()
     
     # Get top 10 most similar users
-    sim_users = list(enumerate(user_sim[user_idx]))
-    sim_users = sorted(sim_users, key=lambda x: x[1], reverse=True)[1:11]
+    user_idx = pivot.columns.get_loc(user_id)
+    sim_users_indices = np.argsort(user_sim_vector)[::-1]
+    sim_users_indices = [idx for idx in sim_users_indices if idx != user_idx][:10]
     
-    sim_user_indices = [x[0] for x in sim_users]
-    sim_user_weights = [x[1] for x in sim_users]
-    
-    # Find what items the target user hasn't rated yet
-    target_user_ratings = user_pivot.iloc[user_idx]
-    unrated_anime_ids = target_user_ratings[target_user_ratings == 0].index
-    
-    # Predict scores for unrated items
-    predicted_scores = {}
-    for idx, weight in zip(sim_user_indices, sim_user_weights):
-        if weight == 0:
-            continue
-        other_user_ratings = user_pivot.iloc[idx]
-        for anime_id in unrated_anime_ids:
-            if other_user_ratings[anime_id] > 0:
-                predicted_scores[anime_id] = predicted_scores.get(anime_id, 0) + (other_user_ratings[anime_id] * weight)
-                
-    if not predicted_scores:
+    if len(sim_users_indices) == 0:
         return pd.DataFrame()
         
-    sorted_predictions = sorted(predicted_scores.items(), key=lambda x: x[1], reverse=True)[:num_rec]
-    rec_anime_ids = [item[0] for item in sorted_predictions]
+    similar_users_ids = pivot.columns[sim_users_indices]
+    weights = user_sim_vector[sim_users_indices]
     
+    # Predict scores for unrated items using matrix multiplication
+    user_ratings = pivot[user_id]
+    sub_matrix = pivot[similar_users_ids].values
+    predicted_scores = np.dot(sub_matrix, weights)
+    
+    # Mask out already rated items
+    predicted_scores[user_ratings > 0] = 0
+    
+    # Extract top N recommendations
+    top_anime_indices = np.argsort(predicted_scores)[::-1]
+    top_anime_indices = [idx for idx in top_anime_indices if predicted_scores[idx] > 0][:num_rec]
+    
+    if not top_anime_indices:
+        return pd.DataFrame()
+        
+    rec_anime_ids = pivot.index[top_anime_indices]
     return df[df['anime_id'].isin(rec_anime_ids)][['name', 'genre', 'type', 'rating', 'episodes']]
 
 
@@ -234,20 +225,20 @@ with tab3:
                 
     else:
         # User-Based personalized recommendation
-        sample_users = sorted(clean_ratings_df['user_id'].unique()[:50]) # Grab sample user ids for UI guidance
+        sample_users = sorted(clean_ratings_df['user_id'].unique()[:50])
         st.write(f"💡 *Sample User IDs present in dataset:* {list(sample_users[:10])}...")
         
         target_user = st.number_input("👤 Enter an Existing User ID:", min_value=1, step=1, value=int(sample_users[0]))
         num_rec_cf_u = st.slider("Recommendations Count", 3, 10, 5, key="cf_u_slider")
         
         if st.button("👤 Generate Tailored User Feed"):
-            # Display current items that user liked
             user_history = raw_df[raw_df['user_id'] == target_user].sort_values(by='rating', ascending=False)
             if not user_history.empty:
                 st.markdown(f"### History for User `{target_user}` (Highly Rated items):")
                 st.dataframe(user_history[['name', 'rating']].head(3), use_container_width=True, hide_index=True)
                 
-                recs = get_user_collaborative_recommendations(target_user, anime_df, user_pivot_matrix, user_collab_sim, num_rec_cf_u)
+                # Using the newly optimized on-the-fly calculation
+                recs = get_user_collaborative_recommendations(target_user, anime_df, pivot_matrix, num_rec_cf_u)
                 if not recs.empty:
                     st.success(f"Top tailored recommendations based on similar peer-profiles:")
                     st.dataframe(recs, use_container_width=True, hide_index=True)
